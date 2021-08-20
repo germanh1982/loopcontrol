@@ -1,0 +1,10 @@
+{
+    "kp": 2,
+    "ki": 1,
+    "kd": 0,
+    "ticcport": "/dev/ttyACM1",
+    "ticcbaud": 115200,
+    "dacport": "/dev/spidev0.0",
+    "ticcsps": 1,
+    "dacstart": 0
+}
