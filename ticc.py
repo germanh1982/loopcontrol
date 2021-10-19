@@ -7,7 +7,7 @@ class TICC(Serial):
         super().__init__(*args, **kwargs)
         self.buf = b''
         self.callback = callback
-        self.dtr = False
+        #self.dtr = False
         self.dtr = True
         sleep(0.1)
         l = self.read(self.in_waiting)

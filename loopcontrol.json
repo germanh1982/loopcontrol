@@ -1,10 +1,12 @@
 {
-    "kp": 2,
-    "ki": 1,
-    "kd": 0,
+    "loglevel": "info",
+    "gain": 2,
+    "reset": 1e5,
+    "rate": 0,
     "ticcport": "/dev/ttyACM1",
     "ticcbaud": 115200,
     "dacport": "/dev/spidev0.0",
-    "ticcsps": 1,
-    "dacstart": 0
+    "sampling_period": 1,
+    "fosc": 10000000.0,
+    "lpf_length": 10
 }

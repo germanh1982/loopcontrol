@@ -8,6 +8,8 @@ from argparse import ArgumentParser
 import ticc
 import paho.mqtt.client as mqtt
 import json
+import logging
+from math import floor
 
 class WindowFilter:
     def __init__(self, size, function):
@@ -33,56 +35,69 @@ def process_line(channel, sample):
         else:
             # calculate new error signal
             # phase_residual goes to 0 when system is locked
-            phase_residual = float(sample) - last_phase - 1 / cfg.ticcsps
-            r = meanfilter(phase_residual)
+            phase_residual = float(sample) - last_phase - cfg['sampling_period']
+            filtered = meanfilter(phase_residual) * cfg['fosc']
 
-            control = round(min(1048575, max(0, pid(r) * 1e10)))
+            control = round(pid(filtered))
             dac.set(control)
 
             report = {
                 "ts": ts,
                 "phase": sample,
                 "phase_residual": phase_residual,
-                "filter_output": r,
+                "filter_output": filtered,
                 "control_output": control
             }
+            log.info(report)
             srv.publish("rt_report", json.dumps(report))
 
             last_phase = sample
 
 if __name__ == '__main__':
     p = ArgumentParser()
-    p.add_argument('configfile')
+    p.add_argument('-l', '--loglevel', choices=['debug', 'info', 'warning', 'error', 'critical'])
+    p.add_argument('-c', '--config', default='loopcontrol.json')
     args = p.parse_args()
 
     # load config
-    with open(args.configfile) as fh:
+    with open(args.config) as fh:
         cfg = json.load(fh)
+
+    if args.loglevel is None:
+        loglevel = cfg['loglevel'].upper()
+    else:
+        loglevel = args.loglevel.upper()
+
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(msg)s', datefmt='%Y-%m-%d %H:%M:%S', level=getattr(logging, loglevel))
+    log = logging.getLogger()
 
     # connect to mqtt server
     srv = mqtt.Client()
     srv.connect_async('localhost')
     srv.loop_start()
 
-    # setup TICC
-    comparator = ticc.TICC(process_line, cfg.ticcport, cfg.ticcbaud, timeout=0.1, rtscts=True)
-    meanfilter = WindowFilter(600, statistics.mean)
+    # setup DAC, do this before the ticc
+    dac = DAC(cfg['dacport'])
 
-    # setup DAC
-    dac = DAC(cfg.dacport)
-    dac.set(cfg.dacstart)
+    # setup TICC
+    comparator = ticc.TICC(process_line, cfg['ticcport'], cfg['ticcbaud'], timeout=0.1, rtscts=True)
+    meanfilter = WindowFilter(cfg['lpf_length'], statistics.mean)
 
     last_phase = None
 
-    pid = PID(cfg.kp, cfg.ki, cfg.kd, setpoint=0)
+    # set max=2^20-2 to leave one free in case the round() before the dac.set() rounds to +1
+    pid = PID(cfg['gain'], cfg['reset'], cfg['rate'], setpoint=0, sample_time=cfg['sampling_period'], output_limits=(0, 1048574))
 
     try:
+        log.info("Starting control loop")
         while True:
-            sleep(1 / cfg.ticcsps / 10)
+            sleep(cfg['sampling_period'] / 10)
             comparator()
     except KeyboardInterrupt:
         print("Interrupted by user")
     finally:
-        log.info("Saving current configuration")
-        with open(args.configfile, 'w') as fh:
-            fh.write(json.dumps(cfg))
+        log.info("Exiting")
+        '''
+        with open(args.config, 'w') as fh:
+            fh.write(json.dumps(cfg, indent=4))
+        '''
